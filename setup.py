@@ -1,8 +1,7 @@
 from time import sleep
-
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 from pyodbc import connect, OperationalError
-from os import environ, chmod
+from os import environ
 from shutil import copy2
 from pathlib import Path
 from subprocess import run, CalledProcessError
@@ -31,7 +30,7 @@ def connect_db() -> None:
         for file in src_dir_path.iterdir():
             copy2(src=file, dst=dest_path_dir)
         for file in dest_path_dir.iterdir():
-            chmod(path=file, mode=0o644)
+            file.chmod(mode=0o644)
 
         try:
             initial_container_status = run(["docker", "ps"], check=True, capture_output=True).stdout.decode("utf-8").replace("\n", "")
@@ -43,97 +42,47 @@ def connect_db() -> None:
         else:
             if container_status.endswith("w3resource_sql"):
                 try:
-                    sleep(5)
+                    if not initial_container_status.endswith("w3resource_sql"):
+                        print("Waiting for database connection")
+                        sleep(10)
                     db_connection = connect(connection_string)
                     cursor = db_connection.cursor()
                     print("Database connected successfully")
                 except OperationalError as oe:
                     print(f"{oe}")
                 else:
+                    ddl_scripts_path = Path("./Scripts/ddl")
+                    sp_scripts_path = Path("./Scripts/stored_procedures")
+                    constraints_scripts_path = Path("./Scripts/constraints")
+
                     # Create w3resource_sql database
-                    with open("Scripts/ddl/create_database.sql", "r") as db:
+                    with open(ddl_scripts_path / "create_database.sql", "r") as db:
                         create_db_script = db.read()
                         db_connection.autocommit = True
                         cursor.execute(create_db_script)
                         db_connection.autocommit = False
-
-                    # Create salesman table
-                    with open("Scripts/ddl/create_salesman_table.sql", "r") as salesman:
-                        salesman_table_script = salesman.read()
-                        cursor.execute(salesman_table_script)
-                        cursor.commit()
-
-                    # Create Stored Procedure to insert salesman data
-                    with open("Scripts/stored_procedures/USP_insert_salesman_data.sql", "r") as salesman_sp:
-                        salesman_sp_script = salesman_sp.read()
-                        cursor.execute("USE w3resource_sql")
-                        cursor.execute(salesman_sp_script)
-                        cursor.commit()
-
-                    # Create customer table
-                    with open("Scripts/ddl/create_customer_table.sql", "r") as customer:
-                        customer_table_script = customer.read()
-                        cursor.execute(customer_table_script)
-                        cursor.commit()
-
-                    # Create Stored Procedure to insert customer data
-                    with open("Scripts/stored_procedures/USP_insert_customer_data.sql", "r") as customer_sp:
-                        customer_sp_script = customer_sp.read()
-                        cursor.execute("USE w3resource_sql")
-                        cursor.execute(customer_sp_script)
-                        cursor.commit()
-
-                    # Create nobel_win table
-                    with open("Scripts/ddl/create_nobel_win_table.sql", "r") as nobel_win:
-                        nobel_win_script = nobel_win.read()
-                        cursor.execute(nobel_win_script)
-                        cursor.commit()
-
-                    # Create Stored Procedure to insert nobel_win data
-                    with open("Scripts/stored_procedures/USP_insert_nobel_win_data.sql", "r") as nobel_win_sp:
-                        nobel_win_sp_script = nobel_win_sp.read()
-                        cursor.execute("USE w3resource_sql")
-                        cursor.execute(nobel_win_sp_script)
-                        cursor.commit()
-
-                    # Create orders table
-                    with open("Scripts/ddl/create_orders_table.sql", "r") as orders:
-                        orders_script = orders.read()
-                        cursor.execute(orders_script)
-                        cursor.commit()
-
-                    # Create Stored Procedure to insert orders data
-                    with open("Scripts/stored_procedures/USP_insert_orders_data.sql", "r") as orders_sp:
-                        orders_sp_script = orders_sp.read()
-                        cursor.execute("USE w3resource_sql")
-                        cursor.execute(orders_sp_script)
-                        cursor.commit()
-
-                    # Create item_mast table
-                    with open("Scripts/ddl/create_item_mast_table.sql", "r") as item_mast:
-                        item_mast_script = item_mast.read()
-                        cursor.execute(item_mast_script)
-                        cursor.commit()
-
-                    # Create Stored Procedure to insert item_mast data
-                    with open("Scripts/stored_procedures/USP_insert_item_mast_data.sql", "r") as item_mast_sp:
-                        item_mast_sp_script = item_mast_sp.read()
-                        cursor.execute("USE w3resource_sql")
-                        cursor.execute(item_mast_sp_script)
-                        cursor.commit()
-
-                    # Create emp_details table
-                    with open("Scripts/ddl/create_emp_details_table.sql", "r") as emp_details:
-                        emp_details_script = emp_details.read()
-                        cursor.execute(emp_details_script)
-                        cursor.commit()
-
-                    # Create Stored Procedure to insert emp_details data
-                    with open("Scripts/stored_procedures/USP_insert_emp_details_data.sql", "r") as emp_details_sp:
-                        emp_details_sp_script = emp_details_sp.read()
-                        cursor.execute("USE w3resource_sql")
-                        cursor.execute(emp_details_sp_script)
-                        cursor.commit()
+                    
+                    # Create tables
+                    for ddl_file in ddl_scripts_path.iterdir():
+                        with open(ddl_file, "r") as ddl:
+                            ddl_script = ddl.read()
+                            cursor.execute(ddl_script)
+                            cursor.commit()
+                    
+                    # Add Foreign Key Constraints
+                    for constraints_file in constraints_scripts_path.iterdir():
+                        with open(constraints_file, "r") as constraints:
+                            constraints_script = constraints.read()
+                            cursor.execute(constraints_script)
+                            cursor.commit()
+                    
+                    # Create Stored Procedures for inserting data into tables
+                    cursor.execute("USE w3resource_sql")
+                    for sp_file in sp_scripts_path.iterdir():
+                        with open(sp_file, "r") as sp:
+                            sp_script = sp.read()
+                            cursor.execute(sp_script)
+                            cursor.commit()
 
                     cursor.close()
                     db_connection.close()
